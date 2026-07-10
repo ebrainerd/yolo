@@ -9,26 +9,28 @@ const uiRoot = document.getElementById('ui-root');
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: true,
+  antialias: false,
   powerPreference: 'high-performance',
+  stencil: false,
+  depth: true,
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Cap resolution — retina * soft shadows * dozens of lights was unplayable.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = false;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060d);
-scene.fog = new THREE.FogExp2(0x07091a, 0.018);
+scene.fog = new THREE.FogExp2(0x07091a, 0.022);
 
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
   0.1,
-  400,
+  180,
 );
 
 const clock = new THREE.Clock();

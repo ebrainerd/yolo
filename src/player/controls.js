@@ -160,9 +160,10 @@ export function createPlayer(camera, canvas, world) {
     getInteractionOrigin() {
       eyePosition.set(position.x, position.y + EYE_HEIGHT, position.z);
       lookDirection.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      // Reuse vectors — callers must not retain across frames.
       return {
-        position: eyePosition.clone(),
-        direction: lookDirection.clone(),
+        position: eyePosition,
+        direction: lookDirection,
       };
     },
   };
