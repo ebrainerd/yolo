@@ -1,16 +1,14 @@
 /**
- * Neon Nocturne — procedural night city world.
+ * Neon Nocturne — procedural night city world (perf-tuned).
  *
- * createWorld(scene) -> {
- *   colliders, walkableBounds, getGroundHeight(x, z), update(dt, elapsed, player)
- * }
+ * Heavy PointLights + soft shadows made this unplayable. Neon is now mostly
+ * emissive/unlit meshes; only a handful of real lights remain.
  */
 
 import * as THREE from 'three';
 
 const CYAN = 0x3de7ff;
 const MAGENTA = 0xff3d9a;
-const WARM = 0xffb060;
 
 const CITY_HALF = 50;
 const WALK_HALF = 48;
@@ -39,7 +37,7 @@ function mulberry32(seed) {
 }
 
 function createAsphaltTexture() {
-  const size = 512;
+  const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -74,8 +72,8 @@ function createAsphaltTexture() {
   }
 
   ctx.strokeStyle = 'rgba(180, 170, 90, 0.22)';
-  ctx.lineWidth = 3;
-  ctx.setLineDash([14, 18]);
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 14]);
   for (let i = 0; i <= 10; i++) {
     const p = i * step + step * 0.5;
     ctx.beginPath();
@@ -94,12 +92,14 @@ function createAsphaltTexture() {
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(8, 8);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 2;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   return tex;
 }
 
 function createSidewalkTexture() {
-  const size = 128;
+  const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -129,9 +129,9 @@ function createSidewalkTexture() {
 }
 
 /** Canvas facade: dark wall + lit window grid + optional neon strip. */
-function createFacadeMaps(rng, opts = {}) {
-  const w = 128;
-  const h = 256;
+function createFacadeMaps(rng) {
+  const w = 64;
+  const h = 128;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -141,12 +141,6 @@ function createFacadeMaps(rng, opts = {}) {
   ctx.fillStyle = wallColors[Math.floor(rng() * wallColors.length)];
   ctx.fillRect(0, 0, w, h);
 
-  // Slight vertical banding
-  for (let x = 0; x < w; x += 16) {
-    ctx.fillStyle = `rgba(255,255,255,${0.01 + rng() * 0.02})`;
-    ctx.fillRect(x, 0, 1, h);
-  }
-
   const emissiveCanvas = document.createElement('canvas');
   emissiveCanvas.width = w;
   emissiveCanvas.height = h;
@@ -154,12 +148,12 @@ function createFacadeMaps(rng, opts = {}) {
   ectx.fillStyle = '#000000';
   ectx.fillRect(0, 0, w, h);
 
-  const cols = 3 + Math.floor(rng() * 3);
-  const rows = 5 + Math.floor(rng() * 6);
-  const padX = 10;
-  const padY = 18;
-  const gapX = 5;
-  const gapY = 7;
+  const cols = 3 + Math.floor(rng() * 2);
+  const rows = 5 + Math.floor(rng() * 4);
+  const padX = 6;
+  const padY = 10;
+  const gapX = 3;
+  const gapY = 4;
   const usableW = w - padX * 2 - gapX * (cols - 1);
   const usableH = h - padY * 2 - gapY * (rows - 1);
   const winW = usableW / cols;
@@ -174,16 +168,16 @@ function createFacadeMaps(rng, opts = {}) {
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (rng() < 0.32) continue;
+      if (rng() < 0.35) continue;
       const px = padX + c * (winW + gapX);
       const py = padY + r * (winH + gapY);
       const pal = palettes[Math.floor(rng() * palettes.length)];
-      const lit = 0.45 + rng() * 0.55;
+      const lit = 0.5 + rng() * 0.5;
 
       ctx.fillStyle = '#06080e';
       ctx.fillRect(px, py, winW, winH);
       ctx.fillStyle = pal[1];
-      ctx.globalAlpha = lit * 0.85;
+      ctx.globalAlpha = lit * 0.9;
       ctx.fillRect(px + 1, py + 1, winW - 2, winH - 2);
       ctx.globalAlpha = 1;
 
@@ -194,41 +188,30 @@ function createFacadeMaps(rng, opts = {}) {
     }
   }
 
-  // Neon sign strip
-  if (opts.withSign !== false && rng() < 0.6) {
-    const cyan = rng() < 0.5;
-    const color = cyan ? '#3de7ff' : '#ff3d9a';
-    const sy = 40 + Math.floor(rng() * (h * 0.45));
-    const sh = 10 + Math.floor(rng() * 10);
-    const sx = 12 + Math.floor(rng() * 20);
+  if (rng() < 0.55) {
+    const color = rng() < 0.5 ? '#3de7ff' : '#ff3d9a';
+    const sy = 20 + Math.floor(rng() * (h * 0.45));
+    const sh = 6 + Math.floor(rng() * 6);
+    const sx = 8 + Math.floor(rng() * 12);
     const sw = w - sx * 2;
 
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.95;
     ctx.fillRect(sx, sy, sw, sh);
-    ctx.globalAlpha = 1;
-
     ectx.fillStyle = color;
     ectx.fillRect(sx, sy, sw, sh);
-
-    // Soft glow bleed
-    ectx.globalAlpha = 0.35;
-    ectx.fillRect(sx - 2, sy - 3, sw + 4, sh + 6);
-    ectx.globalAlpha = 1;
   }
 
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
-  map.anisotropy = 4;
+  map.anisotropy = 1;
 
   const emissiveMap = new THREE.CanvasTexture(emissiveCanvas);
   emissiveMap.colorSpace = THREE.SRGBColorSpace;
-  emissiveMap.anisotropy = 4;
+  emissiveMap.anisotropy = 1;
 
-  return { map, emissiveMap, hasSign: true };
+  return { map, emissiveMap };
 }
 
-/** Open plaza cells — no solid buildings (NPC-friendly). */
 function isPlazaCell(ix, iz) {
   if (ix === 0 && iz === 0) return true;
   if (ix === 0 && iz === 1) return true;
@@ -262,199 +245,118 @@ export function createWorld(scene) {
   scene.add(root);
 
   const colliders = [];
-  const flickerTargets = [];
+  const flickerMats = [];
+  const flickerLights = [];
 
-  // ── Lighting ──────────────────────────────────────────────
-  const hemi = new THREE.HemisphereLight(0x1a2a48, 0x040508, 0.42);
+  // ── Lighting: keep this tiny. Neon comes from emissive meshes. ──
+  const hemi = new THREE.HemisphereLight(0x2a3a5c, 0x05060a, 0.55);
   root.add(hemi);
 
-  const ambient = new THREE.AmbientLight(0x0c1520, 0.22);
+  const ambient = new THREE.AmbientLight(0x142030, 0.35);
   root.add(ambient);
 
-  const moon = new THREE.DirectionalLight(0x8aa0c8, 0.28);
+  const moon = new THREE.DirectionalLight(0x9ab0d0, 0.35);
   moon.position.set(-40, 80, 20);
-  moon.castShadow = true;
-  moon.shadow.mapSize.set(1024, 1024);
-  moon.shadow.camera.near = 10;
-  moon.shadow.camera.far = 160;
-  moon.shadow.camera.left = -60;
-  moon.shadow.camera.right = 60;
-  moon.shadow.camera.top = 60;
-  moon.shadow.camera.bottom = -60;
-  moon.shadow.bias = -0.0008;
+  moon.castShadow = false;
   root.add(moon);
 
-  const cyanFill = new THREE.PointLight(CYAN, 0.55, 55, 2);
-  cyanFill.position.set(-18, 10, 12);
+  // Two soft fills for cyan/magenta mood — not per-lamp lights.
+  const cyanFill = new THREE.PointLight(CYAN, 1.1, 70, 2);
+  cyanFill.position.set(-12, 14, 10);
   root.add(cyanFill);
 
-  const magentaFill = new THREE.PointLight(MAGENTA, 0.45, 50, 2);
-  magentaFill.position.set(22, 9, -16);
+  const magentaFill = new THREE.PointLight(MAGENTA, 0.9, 65, 2);
+  magentaFill.position.set(16, 12, -14);
   root.add(magentaFill);
 
-  flickerTargets.push(
-    { light: cyanFill, base: 0.55, amp: 0.08, speed: 1.7, phase: 0.3 },
-    { light: magentaFill, base: 0.45, amp: 0.1, speed: 2.1, phase: 1.1 },
+  const warmFill = new THREE.PointLight(0xffb070, 0.7, 55, 2);
+  warmFill.position.set(0, 10, 0);
+  root.add(warmFill);
+
+  flickerLights.push(
+    { light: cyanFill, base: 1.1, amp: 0.06, speed: 1.2, phase: 0.3 },
+    { light: magentaFill, base: 0.9, amp: 0.07, speed: 1.5, phase: 1.1 },
+    { light: warmFill, base: 0.7, amp: 0.05, speed: 0.9, phase: 2.0 },
   );
 
   // ── Ground ────────────────────────────────────────────────
   const asphaltTex = createAsphaltTexture();
-  const groundMat = new THREE.MeshStandardMaterial({
+  const groundMat = new THREE.MeshLambertMaterial({
     color: 0x0b0e16,
     map: asphaltTex,
-    metalness: 0.85,
-    roughness: 0.22,
   });
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(CITY_HALF * 2, CITY_HALF * 2),
     groundMat,
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
   ground.name = 'asphalt';
   root.add(ground);
 
   const sidewalkTex = createSidewalkTexture();
-  const sidewalkMat = new THREE.MeshStandardMaterial({
+  const sidewalkMat = new THREE.MeshLambertMaterial({
     color: 0x141820,
     map: sidewalkTex,
-    metalness: 0.35,
-    roughness: 0.55,
   });
-  const sidewalkGeoCache = new Map();
-  function sidewalkGeo(w, d) {
-    const key = `${w.toFixed(2)}_${d.toFixed(2)}`;
-    let g = sidewalkGeoCache.get(key);
-    if (!g) {
-      g = new THREE.BoxGeometry(w, 0.08, d);
-      sidewalkGeoCache.set(key, g);
-    }
-    return g;
-  }
 
-  const laneMat = new THREE.MeshStandardMaterial({
+  // One sidewalk slab per block instead of 4 ring pieces.
+  const sidewalkGeo = new THREE.BoxGeometry(
+    BLOCK + SIDEWALK * 2,
+    0.08,
+    BLOCK + SIDEWALK * 2,
+  );
+
+  const laneMat = new THREE.MeshBasicMaterial({
     color: 0x3a3420,
-    emissive: 0x2a2410,
-    emissiveIntensity: 0.15,
-    metalness: 0.2,
-    roughness: 0.7,
   });
   const laneGeoX = new THREE.BoxGeometry(CITY_HALF * 2 - 4, 0.02, 0.18);
   const laneGeoZ = new THREE.BoxGeometry(0.18, 0.02, CITY_HALF * 2 - 4);
 
-  // ── Shared geometries ─────────────────────────────────────
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
   boxGeo.translate(0, 0.5, 0);
-
   const thinBoxGeo = new THREE.BoxGeometry(1, 1, 1);
 
-  const roofMat = new THREE.MeshStandardMaterial({
+  const roofMat = new THREE.MeshLambertMaterial({
     color: 0x0a0c12,
-    metalness: 0.6,
-    roughness: 0.45,
   });
 
-  // Pool of reusable facade materials (limit unique textures)
+  // Fewer unique facade textures
   const facadePool = [];
   const facadeRng = mulberry32(0xc1a55eed);
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 6; i++) {
     const { map, emissiveMap } = createFacadeMaps(facadeRng);
-    const mat = new THREE.MeshStandardMaterial({
+    const mat = new THREE.MeshLambertMaterial({
       color: 0xffffff,
       map,
       emissive: 0xffffff,
       emissiveMap,
-      emissiveIntensity: 0.85,
-      metalness: 0.35,
-      roughness: 0.55,
+      emissiveIntensity: 0.95,
     });
     facadePool.push(mat);
-    flickerTargets.push({
+    flickerMats.push({
       mat,
-      base: 0.85,
-      amp: 0.1 + (i % 4) * 0.03,
-      speed: 1.8 + (i % 5) * 0.4,
+      base: 0.95,
+      amp: 0.06 + (i % 3) * 0.02,
+      speed: 1.4 + (i % 4) * 0.3,
       phase: i * 0.7,
     });
   }
 
   const signMats = {
-    cyan: new THREE.MeshStandardMaterial({
-      color: 0x061018,
-      emissive: CYAN,
-      emissiveIntensity: 1.4,
-      metalness: 0.3,
-      roughness: 0.35,
-    }),
-    magenta: new THREE.MeshStandardMaterial({
-      color: 0x180610,
-      emissive: MAGENTA,
-      emissiveIntensity: 1.35,
-      metalness: 0.3,
-      roughness: 0.35,
-    }),
+    cyan: new THREE.MeshBasicMaterial({ color: CYAN }),
+    magenta: new THREE.MeshBasicMaterial({ color: MAGENTA }),
   };
-  Object.values(signMats).forEach((mat, i) => {
-    flickerTargets.push({
-      mat,
-      base: mat.emissiveIntensity,
-      amp: 0.28,
-      speed: 3.2 + i * 0.5,
-      phase: 2 + i,
-    });
-  });
 
-  const poleGeo = new THREE.CylinderGeometry(0.06, 0.08, 4.2, 6);
+  const poleGeo = new THREE.CylinderGeometry(0.06, 0.08, 4.2, 5);
   poleGeo.translate(0, 2.1, 0);
   const armGeo = new THREE.BoxGeometry(1.1, 0.08, 0.08);
-  const lampHeadGeo = new THREE.SphereGeometry(0.18, 8, 6);
-  const poleMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1e28,
-    metalness: 0.7,
-    roughness: 0.35,
-  });
-  const lampGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xffcc88,
-    emissive: 0xffaa55,
-    emissiveIntensity: 1.1,
-    metalness: 0.1,
-    roughness: 0.4,
-  });
-  flickerTargets.push({
-    mat: lampGlowMat,
-    base: 1.1,
-    amp: 0.08,
-    speed: 0.9,
-    phase: 0.5,
-  });
+  const lampHeadGeo = new THREE.SphereGeometry(0.18, 6, 4);
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0x1a1e28 });
+  const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xffcc88 });
 
-  const plazaMat = new THREE.MeshStandardMaterial({
-    color: 0x10141c,
-    metalness: 0.55,
-    roughness: 0.4,
-  });
-  const plazaRingMat = new THREE.MeshStandardMaterial({
-    color: 0x0a1820,
-    emissive: CYAN,
-    emissiveIntensity: 0.35,
-    metalness: 0.4,
-    roughness: 0.45,
-  });
-  flickerTargets.push({
-    mat: plazaRingMat,
-    base: 0.35,
-    amp: 0.08,
-    speed: 1.4,
-    phase: 0.2,
-  });
-
-  const darkMat = new THREE.MeshStandardMaterial({
-    color: 0x0c1018,
-    metalness: 0.45,
-    roughness: 0.55,
-  });
-
-  let neonLightBudget = 10;
+  const plazaMat = new THREE.MeshLambertMaterial({ color: 0x10141c });
+  const plazaRingMat = new THREE.MeshBasicMaterial({ color: CYAN });
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x0c1018 });
 
   function addCollider(minX, maxX, minZ, maxZ) {
     colliders.push({
@@ -467,25 +369,23 @@ export function createWorld(scene) {
 
   function addBuilding(x, z, w, d, h, rng) {
     const facade = facadePool[Math.floor(rng() * facadePool.length)];
-    // Box with same material on all sides — windows read on every face
     const mesh = new THREE.Mesh(boxGeo, facade);
     mesh.position.set(x, 0, z);
     mesh.scale.set(w, h, d);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     root.add(mesh);
 
-    // Flat dark roof cap
     const roof = new THREE.Mesh(thinBoxGeo, roofMat);
     roof.position.set(x, h + 0.05, z);
     roof.scale.set(w * 0.98, 0.12, d * 0.98);
-    roof.receiveShadow = true;
+    roof.matrixAutoUpdate = false;
+    roof.updateMatrix();
     root.add(roof);
 
     addCollider(x - w * 0.5, x + w * 0.5, z - d * 0.5, z + d * 0.5);
 
-    // Occasional protruding neon sign strip (mesh + optional PointLight)
-    if (rng() < 0.48 && h > 6) {
+    if (rng() < 0.4 && h > 6) {
       const cyanSign = rng() < 0.5;
       const sMat = cyanSign ? signMats.cyan : signMats.magenta;
       const face = Math.floor(rng() * 4);
@@ -508,42 +408,18 @@ export function createWorld(scene) {
         sign.position.set(x - push, y, z);
         sign.scale.set(0.12, signH, signW);
       }
+      sign.matrixAutoUpdate = false;
+      sign.updateMatrix();
       root.add(sign);
-
-      if (neonLightBudget > 0 && rng() < 0.4) {
-        neonLightBudget -= 1;
-        const color = cyanSign ? CYAN : MAGENTA;
-        const pl = new THREE.PointLight(color, 0.85, 12, 2);
-        pl.position.copy(sign.position);
-        pl.position.y += 0.15;
-        root.add(pl);
-        flickerTargets.push({
-          light: pl,
-          base: 0.85,
-          amp: 0.32,
-          speed: 4 + rng() * 3,
-          phase: rng() * Math.PI * 2,
-        });
-      }
     }
   }
 
-  function addSidewalkRing(b) {
-    const outer = BLOCK * 0.5 + SIDEWALK;
-    const inner = BLOCK * 0.5;
-    const t = SIDEWALK;
-    const pieces = [
-      { x: b.cx, z: b.cz + (inner + outer) * 0.5, w: outer * 2, d: t },
-      { x: b.cx, z: b.cz - (inner + outer) * 0.5, w: outer * 2, d: t },
-      { x: b.cx + (inner + outer) * 0.5, z: b.cz, w: t, d: BLOCK },
-      { x: b.cx - (inner + outer) * 0.5, z: b.cz, w: t, d: BLOCK },
-    ];
-    for (const p of pieces) {
-      const m = new THREE.Mesh(sidewalkGeo(p.w, p.d), sidewalkMat);
-      m.position.set(p.x, 0.04, p.z);
-      m.receiveShadow = true;
-      root.add(m);
-    }
+  function addSidewalkPad(b) {
+    const m = new THREE.Mesh(sidewalkGeo, sidewalkMat);
+    m.position.set(b.cx, 0.04, b.cz);
+    m.matrixAutoUpdate = false;
+    m.updateMatrix();
+    root.add(m);
   }
 
   function addPlazaDecor(ix, iz, rng) {
@@ -553,16 +429,19 @@ export function createWorld(scene) {
       plazaMat,
     );
     pad.position.set(b.cx, 0.03, b.cz);
-    pad.receiveShadow = true;
+    pad.matrixAutoUpdate = false;
+    pad.updateMatrix();
     root.add(pad);
 
     if (ix === 0 && iz === 0) {
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(3.2, 0.08, 8, 32),
+        new THREE.TorusGeometry(3.2, 0.08, 6, 24),
         plazaRingMat,
       );
       ring.rotation.x = -Math.PI / 2;
       ring.position.set(b.cx, 0.12, b.cz);
+      ring.matrixAutoUpdate = false;
+      ring.updateMatrix();
       root.add(ring);
 
       for (let i = 0; i < 4; i++) {
@@ -572,25 +451,31 @@ export function createWorld(scene) {
         const planter = new THREE.Mesh(boxGeo, darkMat);
         planter.position.set(px, 0, pz);
         planter.scale.set(1.2, 0.7, 1.2);
-        planter.castShadow = true;
-        planter.receiveShadow = true;
+        planter.matrixAutoUpdate = false;
+        planter.updateMatrix();
         root.add(planter);
         addCollider(px - 0.6, px + 0.6, pz - 0.6, pz + 0.6);
 
         const glow = new THREE.Mesh(
-          new THREE.BoxGeometry(1.0, 0.08, 1.0),
+          thinBoxGeo,
           rng() < 0.5 ? signMats.cyan : signMats.magenta,
         );
         glow.position.set(px, 0.72, pz);
+        glow.scale.set(1.0, 0.08, 1.0);
+        glow.matrixAutoUpdate = false;
+        glow.updateMatrix();
         root.add(glow);
       }
     } else {
       const strip = new THREE.Mesh(
-        new THREE.BoxGeometry(4 + rng() * 3, 0.05, 0.25),
+        thinBoxGeo,
         rng() < 0.5 ? signMats.cyan : signMats.magenta,
       );
       strip.position.set(b.cx, 0.08, b.cz);
+      strip.scale.set(4 + rng() * 3, 0.05, 0.25);
       strip.rotation.y = rng() * Math.PI;
+      strip.matrixAutoUpdate = false;
+      strip.updateMatrix();
       root.add(strip);
     }
   }
@@ -605,10 +490,14 @@ export function createWorld(scene) {
 
     const lx = new THREE.Mesh(laneGeoZ, laneMat);
     lx.position.set(streetCenter, 0.015, 0);
+    lx.matrixAutoUpdate = false;
+    lx.updateMatrix();
     root.add(lx);
 
     const lz = new THREE.Mesh(laneGeoX, laneMat);
     lz.position.set(0, 0.015, streetCenter);
+    lz.matrixAutoUpdate = false;
+    lz.updateMatrix();
     root.add(lz);
   }
 
@@ -618,7 +507,7 @@ export function createWorld(scene) {
       const seed = ((ix + 5) * 31 + (iz + 5) * 17 + 99) | 0;
       const rng = mulberry32(seed ^ 0x9e3779b9);
 
-      addSidewalkRing(b);
+      addSidewalkPad(b);
 
       if (isPlazaCell(ix, iz)) {
         addPlazaDecor(ix, iz, rng);
@@ -628,16 +517,16 @@ export function createWorld(scene) {
       const layoutRoll = rng();
       const buildings = [];
 
-      if (layoutRoll < 0.22) {
+      if (layoutRoll < 0.28) {
         const margin = 1.1 + rng() * 0.6;
         buildings.push({
           x: b.cx + (rng() - 0.5) * 1.2,
           z: b.cz + (rng() - 0.5) * 1.2,
           w: BLOCK - margin * 2,
           d: BLOCK - margin * 2,
-          h: 10 + rng() * 18,
+          h: 10 + rng() * 16,
         });
-      } else if (layoutRoll < 0.55) {
+      } else if (layoutRoll < 0.62) {
         const gap = 1.6 + rng() * 0.8;
         const total = BLOCK - 2.2;
         const w1 = total * (0.4 + rng() * 0.2);
@@ -648,16 +537,16 @@ export function createWorld(scene) {
           z: b.cz + (rng() - 0.5) * 1.5,
           w: w1,
           d: depth,
-          h: 6 + rng() * 14,
+          h: 6 + rng() * 12,
         });
         buildings.push({
           x: b.maxX - 1.1 - w2 * 0.5,
           z: b.cz + (rng() - 0.5) * 1.5,
           w: Math.max(3, w2),
           d: depth * (0.85 + rng() * 0.2),
-          h: 5 + rng() * 12,
+          h: 5 + rng() * 10,
         });
-      } else if (layoutRoll < 0.78) {
+      } else if (layoutRoll < 0.85) {
         const gap = 1.6 + rng() * 0.8;
         const total = BLOCK - 2.2;
         const d1 = total * (0.4 + rng() * 0.2);
@@ -668,29 +557,29 @@ export function createWorld(scene) {
           z: b.minZ + 1.1 + d1 * 0.5,
           w: width,
           d: d1,
-          h: 7 + rng() * 13,
+          h: 7 + rng() * 11,
         });
         buildings.push({
           x: b.cx + (rng() - 0.5) * 1.5,
           z: b.maxZ - 1.1 - d2 * 0.5,
           w: width * (0.85 + rng() * 0.2),
           d: Math.max(3, d2),
-          h: 5 + rng() * 11,
+          h: 5 + rng() * 9,
         });
       } else {
+        // Prefer 2 buildings over 4 for fewer draw calls
         const gap = 1.5;
         const hw = (BLOCK - 2.2 - gap) * 0.5;
         const hd = (BLOCK - 2.2 - gap) * 0.5;
-        const ox = [-1, 1, -1, 1];
-        const oz = [-1, -1, 1, 1];
-        for (let i = 0; i < 4; i++) {
-          if (rng() < 0.12) continue;
+        const ox = [-1, 1];
+        const oz = [-1, 1];
+        for (let i = 0; i < 2; i++) {
           buildings.push({
             x: b.cx + ox[i] * (gap * 0.5 + hw * 0.5),
             z: b.cz + oz[i] * (gap * 0.5 + hd * 0.5),
             w: hw * (0.85 + rng() * 0.2),
             d: hd * (0.85 + rng() * 0.2),
-            h: 4 + rng() * 14,
+            h: 5 + rng() * 12,
           });
         }
       }
@@ -702,7 +591,7 @@ export function createWorld(scene) {
     }
   }
 
-  // ── Street lamps ──────────────────────────────────────────
+  // ── Street lamps: emissive heads only — NO PointLights ──
   const lampPositions = [];
   for (let i = gridMin; i <= gridMax + 1; i++) {
     const street = cellCenter(i) - CELL * 0.5;
@@ -712,9 +601,7 @@ export function createWorld(scene) {
       const along = cellCenter(j);
       const offset = STREET * 0.35;
       lampPositions.push({ x: street - offset, z: along - BLOCK * 0.25 });
-      lampPositions.push({ x: street + offset, z: along + BLOCK * 0.25 });
       lampPositions.push({ x: along - BLOCK * 0.25, z: street - offset });
-      lampPositions.push({ x: along + BLOCK * 0.25, z: street + offset });
     }
   }
 
@@ -724,72 +611,63 @@ export function createWorld(scene) {
     if (Math.abs(p.x) > WALK_HALF - 2 || Math.abs(p.z) > WALK_HALF - 2) continue;
     const key = `${p.x.toFixed(1)}_${p.z.toFixed(1)}`;
     if (used.has(key)) continue;
-    if (hash2(Math.round(p.x), Math.round(p.z), 7) > 0.38) continue;
+    if (hash2(Math.round(p.x), Math.round(p.z), 7) > 0.55) continue;
     used.add(key);
     finalLamps.push(p);
   }
 
   finalLamps.sort((a, b) => hash2(a.x, a.z, 3) - hash2(b.x, b.z, 3));
-  const lampCount = Math.min(30, finalLamps.length);
+  const lampCount = Math.min(18, finalLamps.length);
+
+  // Instanced poles / arms / heads to cut draw calls
+  const poleMesh = new THREE.InstancedMesh(poleGeo, poleMat, lampCount);
+  const armMesh = new THREE.InstancedMesh(armGeo, poleMat, lampCount);
+  const headMesh = new THREE.InstancedMesh(lampHeadGeo, lampGlowMat, lampCount);
+  const dummy = new THREE.Object3D();
 
   for (let i = 0; i < lampCount; i++) {
     const p = finalLamps[i];
-    const group = new THREE.Group();
-    group.position.set(p.x, 0, p.z);
+    let rotY = 0;
+    if (hash2(Math.round(p.x), Math.round(p.z), 11) > 0.5) rotY = Math.PI;
+    else if (hash2(Math.round(p.x), Math.round(p.z), 13) > 0.5) rotY = Math.PI * 0.5;
 
-    const pole = new THREE.Mesh(poleGeo, poleMat);
-    pole.castShadow = true;
-    group.add(pole);
+    dummy.position.set(p.x, 0, p.z);
+    dummy.rotation.set(0, rotY, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    poleMesh.setMatrixAt(i, dummy.matrix);
 
-    const arm = new THREE.Mesh(armGeo, poleMat);
-    arm.position.set(0.45, 4.05, 0);
-    group.add(arm);
+    dummy.position.set(p.x, 0, p.z);
+    dummy.rotation.set(0, rotY, 0);
+    dummy.updateMatrix();
+    // arm local offset (0.45, 4.05, 0) baked via child-like transform
+    const armDummy = new THREE.Object3D();
+    armDummy.position.set(p.x, 0, p.z);
+    armDummy.rotation.y = rotY;
+    armDummy.updateMatrix();
+    const localArm = new THREE.Object3D();
+    localArm.position.set(0.45, 4.05, 0);
+    localArm.updateMatrix();
+    const armMat4 = new THREE.Matrix4().multiplyMatrices(armDummy.matrix, localArm.matrix);
+    armMesh.setMatrixAt(i, armMat4);
 
-    const head = new THREE.Mesh(lampHeadGeo, lampGlowMat);
-    head.position.set(0.95, 3.95, 0);
-    group.add(head);
-
-    if (hash2(Math.round(p.x), Math.round(p.z), 11) > 0.5) {
-      group.rotation.y = Math.PI;
-    } else if (hash2(Math.round(p.x), Math.round(p.z), 13) > 0.5) {
-      group.rotation.y = Math.PI * 0.5;
-    }
-
-    const light = new THREE.PointLight(0xffc078, 1.15, 18, 2);
-    light.position.copy(head.position);
-    light.castShadow = i < 6;
-    if (light.castShadow) {
-      light.shadow.mapSize.set(256, 256);
-      light.shadow.bias = -0.002;
-    }
-    group.add(light);
-
-    flickerTargets.push({
-      light,
-      base: 1.15,
-      amp: 0.12,
-      speed: 1.2 + (i % 5) * 0.25,
-      phase: i * 0.4,
-    });
-
-    root.add(group);
+    const localHead = new THREE.Object3D();
+    localHead.position.set(0.95, 3.95, 0);
+    localHead.updateMatrix();
+    const headMat4 = new THREE.Matrix4().multiplyMatrices(armDummy.matrix, localHead.matrix);
+    headMesh.setMatrixAt(i, headMat4);
   }
 
+  poleMesh.instanceMatrix.needsUpdate = true;
+  armMesh.instanceMatrix.needsUpdate = true;
+  headMesh.instanceMatrix.needsUpdate = true;
+  poleMesh.matrixAutoUpdate = false;
+  armMesh.matrixAutoUpdate = false;
+  headMesh.matrixAutoUpdate = false;
+  root.add(poleMesh, armMesh, headMesh);
+
   // City-edge neon curb
-  const curbMat = new THREE.MeshStandardMaterial({
-    color: 0x081018,
-    emissive: CYAN,
-    emissiveIntensity: 0.2,
-    metalness: 0.5,
-    roughness: 0.4,
-  });
-  flickerTargets.push({
-    mat: curbMat,
-    base: 0.2,
-    amp: 0.05,
-    speed: 0.7,
-    phase: 0,
-  });
+  const curbMat = new THREE.MeshBasicMaterial({ color: CYAN });
   const edge = WALK_HALF + 0.5;
   const curbLen = edge * 2;
   const curbs = [
@@ -802,8 +680,12 @@ export function createWorld(scene) {
     const m = new THREE.Mesh(thinBoxGeo, curbMat);
     m.position.set(c.x, 0.15, c.z);
     m.scale.set(c.sx, 0.3, c.sz);
+    m.matrixAutoUpdate = false;
+    m.updateMatrix();
     root.add(m);
   }
+
+  let flickerAcc = 0;
 
   return {
     colliders,
@@ -816,15 +698,21 @@ export function createWorld(scene) {
     getGroundHeight() {
       return 0;
     },
-    update(_dt, elapsed) {
-      for (const t of flickerTargets) {
-        const n =
-          Math.sin(elapsed * t.speed + t.phase) * 0.6 +
-          Math.sin(elapsed * t.speed * 2.7 + t.phase * 1.3) * 0.3 +
-          Math.sin(elapsed * t.speed * 5.1 + t.phase * 0.7) * 0.1;
-        const v = t.base + n * t.amp;
-        if (t.mat) t.mat.emissiveIntensity = Math.max(0.05, v);
-        if (t.light) t.light.intensity = Math.max(0.05, v);
+    update(dt, elapsed) {
+      // Throttle flicker — materials don't need 60Hz updates
+      flickerAcc += dt;
+      if (flickerAcc < 1 / 20) return;
+      flickerAcc = 0;
+
+      for (let i = 0; i < flickerMats.length; i++) {
+        const t = flickerMats[i];
+        const n = Math.sin(elapsed * t.speed + t.phase);
+        t.mat.emissiveIntensity = Math.max(0.4, t.base + n * t.amp);
+      }
+      for (let i = 0; i < flickerLights.length; i++) {
+        const t = flickerLights[i];
+        const n = Math.sin(elapsed * t.speed + t.phase);
+        t.light.intensity = Math.max(0.2, t.base + n * t.amp);
       }
     },
   };
