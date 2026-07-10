@@ -274,7 +274,6 @@ body {
   opacity: 0;
   transition: opacity 0.35s ease 0.15s;
   pointer-events: none;
-  tabular-nums: true;
   font-variant-numeric: tabular-nums;
 }
 
