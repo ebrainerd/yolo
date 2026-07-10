@@ -15,18 +15,37 @@ const GROUND_SNAP = 0.08;
 const MOUSE_SENSITIVITY = 0.0022;
 const PITCH_LIMIT = 1.4;
 
-/** Circle (x,z,r) overlaps any XZ AABB collider. */
-function overlapsColliders(x, z, radius, colliders) {
-  const r2 = radius * radius;
+/**
+ * Resolve circle-vs-AABB overlap on one axis only so the other axis can slide.
+ * Returns the corrected coordinate for `axis`.
+ */
+function resolveAxis(x, z, radius, colliders, axis) {
   for (let i = 0; i < colliders.length; i++) {
     const c = colliders[i];
     const nearestX = Math.max(c.minX, Math.min(x, c.maxX));
     const nearestZ = Math.max(c.minZ, Math.min(z, c.maxZ));
     const dx = x - nearestX;
     const dz = z - nearestZ;
-    if (dx * dx + dz * dz < r2) return true;
+    const distSq = dx * dx + dz * dz;
+
+    if (distSq >= radius * radius) continue;
+
+    if (distSq > 1e-10) {
+      const dist = Math.sqrt(distSq);
+      const push = (radius - dist) / dist;
+      if (axis === 'x') x += dx * push;
+      else z += dz * push;
+    } else if (axis === 'x') {
+      const penLeft = x - c.minX;
+      const penRight = c.maxX - x;
+      x = penLeft < penRight ? c.minX - radius : c.maxX + radius;
+    } else {
+      const penNear = z - c.minZ;
+      const penFar = c.maxZ - z;
+      z = penNear < penFar ? c.minZ - radius : c.maxZ + radius;
+    }
   }
-  return false;
+  return axis === 'x' ? x : z;
 }
 
 function clampToBounds(x, z, bounds, radius) {
@@ -106,20 +125,17 @@ export function createPlayer(camera, canvas, world) {
 
       velocity.y -= GRAVITY * dt;
 
-      // Axis-separated movement: try X, then Z. Reject an axis if it would overlap.
-      // This slides along walls instead of sticking on corners.
+      // Move and resolve X, then Z — wall sliding without getting stuck on corners.
       let nextX = position.x + velocity.x * dt;
       let nextZ = position.z;
-      if (overlapsColliders(nextX, nextZ, PLAYER_RADIUS, colliders)) {
-        nextX = position.x;
-        velocity.x = 0;
-      }
+      nextX = resolveAxis(nextX, nextZ, PLAYER_RADIUS, colliders, 'x');
 
       nextZ = position.z + velocity.z * dt;
-      if (overlapsColliders(nextX, nextZ, PLAYER_RADIUS, colliders)) {
-        nextZ = position.z;
-        velocity.z = 0;
-      }
+      nextZ = resolveAxis(nextX, nextZ, PLAYER_RADIUS, colliders, 'z');
+
+      // Clean up residual corner overlap after both axes moved.
+      nextX = resolveAxis(nextX, nextZ, PLAYER_RADIUS, colliders, 'x');
+      nextZ = resolveAxis(nextX, nextZ, PLAYER_RADIUS, colliders, 'z');
 
       const clamped = clampToBounds(nextX, nextZ, bounds, PLAYER_RADIUS);
       position.x = clamped.x;
