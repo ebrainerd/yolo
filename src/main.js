@@ -125,6 +125,8 @@ function frame() {
 // between mount() and showStartOverlay(), so a throw left a blank dark page.
 hud.showStartOverlay(() => {
   if (!ready || !player) return;
+  // Combat stays frozen until enter — otherwise drones kill you on the title screen.
+  player.beginCombat?.();
   player.lockPointer();
 });
 

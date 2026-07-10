@@ -8,6 +8,7 @@ export function attachCombat(player, hud) {
   let health = maxHealth;
   let isDead = false;
   let invuln = 0;
+  let combatActive = false;
   const spawn = player.position.clone();
 
   player.maxHealth = maxHealth;
@@ -25,14 +26,30 @@ export function attachCombat(player, hud) {
     get: () => isDead,
   });
 
+  Object.defineProperty(player, 'combatActive', {
+    configurable: true,
+    get: () => combatActive,
+  });
+
+  player.beginCombat = () => {
+    combatActive = true;
+    // Grace period so nearby drones cannot delete you on the first frame.
+    invuln = Math.max(invuln, 3.5);
+    if (!isDead) {
+      health = maxHealth;
+      hud?.setHealth?.(health, maxHealth);
+      hud?.onPlayerRespawn?.();
+    }
+  };
+
   player.takeDamage = (amount) => {
-    if (isDead || invuln > 0) return;
+    if (!combatActive || isDead || invuln > 0) return;
     health = Math.max(0, health - amount);
     hud?.setHealth?.(health, maxHealth);
     hud?.onPlayerHit?.(amount);
     if (health <= 0) {
       isDead = true;
-      // Release pointer so the death CTA is clickable
+      combatActive = false;
       if (typeof document !== 'undefined' && document.exitPointerLock) {
         document.exitPointerLock();
       }
@@ -51,7 +68,8 @@ export function attachCombat(player, hud) {
   player.respawn = () => {
     health = maxHealth;
     isDead = false;
-    invuln = 2;
+    combatActive = true;
+    invuln = 3.5;
     player.position.copy(spawn);
     if (player.velocity) player.velocity.set(0, 0, 0);
     hud?.setHealth?.(health, maxHealth);
@@ -63,12 +81,10 @@ export function attachCombat(player, hud) {
   player.update = (dt, world) => {
     if (invuln > 0) invuln = Math.max(0, invuln - dt);
     if (isDead) {
-      // Freeze horizontal movement while dead overlay is up
       if (player.velocity) {
         player.velocity.x = 0;
         player.velocity.z = 0;
       }
-      // Still update camera look via a zero-wish path: call update but keys cleared externally
       prevUpdate(dt, world);
       if (player.velocity) {
         player.velocity.x = 0;

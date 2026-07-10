@@ -360,6 +360,7 @@ body {
 .hud-death {
   position: absolute;
   inset: 0;
+  z-index: 20;
   display: grid;
   place-items: center;
   place-content: center;
@@ -374,6 +375,7 @@ body {
 
 .hud-death--visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .hud-death__title {
