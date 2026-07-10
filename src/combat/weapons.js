@@ -362,6 +362,7 @@ export function createWeaponSystem(scene, camera, player, world, enemies, hud) {
     if (fireCooldown > 0) fireCooldown -= dt;
     if (
       player.isLocked &&
+      player.combatActive !== false &&
       fireHeld &&
       !reloading &&
       mag > 0 &&

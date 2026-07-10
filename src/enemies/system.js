@@ -7,7 +7,7 @@ import { createHostileDroneMesh } from './drone.js';
 
 const ENEMY_COUNT = 12;
 const CHASE_RANGE = 26;
-const ATTACK_RANGE = 18;
+const ATTACK_RANGE = 16;
 const PATROL_SPEED = 1.6;
 const CHASE_SPEED = 3.5;
 const WAYPOINT_REACH = 0.4;
@@ -22,7 +22,8 @@ const RESPAWN_MIN = 5;
 const RESPAWN_MAX = 7;
 const PLAYER_SPAWN_X = 0;
 const PLAYER_SPAWN_Z = 8;
-const SPAWN_CLEARANCE = 12;
+// Must stay beyond ATTACK_RANGE so spawn is not a free-fire zone.
+const SPAWN_CLEARANCE = 28;
 const SCORE_PER_KILL = 100;
 
 const ENEMY_NAMES = [
@@ -260,7 +261,8 @@ export function createEnemySystem(scene, world, player, hud) {
         { home: { x: spot.x, z: spot.z } },
         world,
       ),
-      attackCooldown: randRange(0.2, ATTACK_COOLDOWN_MAX),
+      // Long first cooldown so nothing opens up the instant the player enters.
+      attackCooldown: randRange(2.5, 4),
       respawnTimer: 0,
       phase: Math.random() * Math.PI * 2,
       deathAnim: 0,
@@ -331,6 +333,8 @@ export function createEnemySystem(scene, world, player, hud) {
   function update(dt, elapsed, p = player) {
     const { x: px, z: pz } = playerXZ(p);
     const playerDead = !!p?.isDead;
+    // No aggro / damage until the run has started (title screen / death unlock).
+    const combatLive = !!p?.combatActive && !playerDead;
 
     for (let i = 0; i < enemies.length; i++) {
       const enemy = enemies[i];
@@ -364,9 +368,15 @@ export function createEnemySystem(scene, world, player, hud) {
 
       const dPlayer = distXZ(mesh.position.x, mesh.position.z, px, pz);
 
-      if (!playerDead && dPlayer <= ATTACK_RANGE) {
+      if (!combatLive) {
+        // Idle patrol only while the player is on the title / dead screen.
+        if (enemy.state !== 'patrol' && enemy.state !== 'dead') {
+          enemy.state = 'patrol';
+          enemy.waypoint = randomNearbyWaypoint(enemy, world);
+        }
+      } else if (dPlayer <= ATTACK_RANGE) {
         enemy.state = 'attack';
-      } else if (!playerDead && dPlayer <= CHASE_RANGE) {
+      } else if (dPlayer <= CHASE_RANGE) {
         enemy.state = 'chase';
       } else if (enemy.state !== 'patrol') {
         enemy.state = 'patrol';
@@ -406,10 +416,14 @@ export function createEnemySystem(scene, world, player, hud) {
         faceToward(mesh, px, pz, Math.min(1, dt * 10));
         applyHover(enemy, elapsed);
 
+        if (!combatLive) {
+          applyHover(enemy, elapsed);
+          continue;
+        }
+
         enemy.attackCooldown -= dt;
         if (
           enemy.attackCooldown <= 0 &&
-          !playerDead &&
           dPlayer <= ATTACK_RANGE &&
           isFacingPlayer(mesh, px, pz)
         ) {
