@@ -14,7 +14,7 @@ Open the local URL. On the Neon Nocturne start screen, click **Click to enter** 
 - **WASD** — move
 - **Shift** — sprint
 - **Mouse** — look
-- **LMB** — fire (auto while held)
+- **LMB** — shoot
 - **R** — reload
 - **E** — talk / continue dialogue when prompted
 - **Esc** — release pointer
