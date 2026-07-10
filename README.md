@@ -1,6 +1,6 @@
 # Neon Nocturne
 
-Immersive first-person night city you can run around in. Talk to NPCs. They will say philosophical things for no reason.
+First-person neon night city. Talk to wandering philosophers. Shoot hostile drones.
 
 ## Run
 
